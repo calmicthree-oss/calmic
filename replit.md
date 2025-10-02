@@ -9,7 +9,18 @@ PhotoVault is a professional photo management platform with advanced camera feat
 - **Frontend**: Server-side rendered templates with JavaScript
 - **Mobile**: React Native Expo app in `photovault-ios/` directory
 
-## Recent Changes (October 1, 2025)
+## Recent Changes
+
+### October 2, 2025 - GitHub Import Setup
+- Fresh clone from GitHub imported successfully
+- Python 3.12 dependencies installed (excluding scikit-image due to build timeout)
+- PostgreSQL database provisioned and initialized
+- Database schema created with all tables and subscription plans seeded
+- Flask development server verified running on port 5000
+- Deployment configuration set to Autoscale with Gunicorn (4 workers)
+- Application tested and confirmed working
+
+### October 1, 2025
 - Initial Replit environment setup completed
 - Python dependencies installed (numpy 1.26.4 for opencv compatibility)
 - PostgreSQL database created and schema initialized
@@ -67,10 +78,10 @@ flask db stamp head  # Mark current state
 
 ### Replit Autoscale
 Configured for autoscale deployment using Gunicorn:
-- Workers: 2 sync workers
-- Timeout: 120 seconds
-- Binds to port 5000
+- Workers: 4 sync workers with --reuse-port
+- Binds to 0.0.0.0:5000
 - Production config automatically applied
+- Command: `gunicorn --bind=0.0.0.0:5000 --reuse-port --workers=4 main:app`
 
 ### Production Requirements
 - Set `SECRET_KEY` environment variable
