@@ -94,18 +94,23 @@
                                     <i class="bi bi-check-circle"></i> Current Plan
                                 </button>
                             {% elif current_subscription %}
-                                <form method="POST" action="{{ url_for('billing.upgrade_plan', plan_id=plan.id) }}">
+                                <form method="POST" action="{{ url_for('billing.change_plan', plan_id=plan.id) }}" onsubmit="return confirm('Are you sure you want to change your plan?')">
                                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                     {% if plan.price_myr > current_subscription.plan.price_myr %}
                                         <button type="submit" class="btn btn-success w-100">
-                                            <i class="bi bi-arrow-up-circle"></i> Upgrade Now (Prorated)
+                                            <i class="bi bi-arrow-up-circle"></i> Upgrade Now
                                         </button>
-                                        <small class="text-muted d-block mt-2">You'll only pay the difference</small>
+                                        <small class="text-muted d-block mt-2">Prorated charge - pay only the difference</small>
+                                    {% elif plan.price_myr < current_subscription.plan.price_myr %}
+                                        <button type="submit" class="btn btn-warning w-100">
+                                            <i class="bi bi-arrow-down-circle"></i> Downgrade
+                                        </button>
+                                        <small class="text-muted d-block mt-2">Takes effect at period end - no refunds</small>
                                     {% else %}
-                                        <button type="submit" class="btn btn-outline-secondary w-100">
-                                            <i class="bi bi-envelope"></i> Contact Support to Switch
+                                        <button type="submit" class="btn btn-outline-primary w-100">
+                                            <i class="bi bi-arrow-left-right"></i> Switch Plan
                                         </button>
-                                        <small class="text-muted d-block mt-2">Changes processed at period end</small>
+                                        <small class="text-muted d-block mt-2">Change at period end</small>
                                     {% endif %}
                                 </form>
                             {% else %}

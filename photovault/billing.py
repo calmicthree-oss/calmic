@@ -303,10 +303,10 @@ def reactivate_subscription():
     return redirect(url_for('billing.dashboard'))
 
 
-@billing_bp.route('/upgrade/<int:plan_id>', methods=['POST'])
+@billing_bp.route('/change-plan/<int:plan_id>', methods=['POST'])
 @login_required
-def upgrade_plan(plan_id):
-    """Upgrade or change subscription plan"""
+def change_plan(plan_id):
+    """Change subscription plan (upgrade or downgrade)"""
     new_plan = SubscriptionPlan.query.get_or_404(plan_id)
     
     # Get current subscription
@@ -346,10 +346,8 @@ def upgrade_plan(plan_id):
             flash('Unauthorized access to subscription.', 'danger')
             return redirect(url_for('billing.dashboard'))
         
-        # For upgrades: apply immediately with proration (payment required before entitlement)
-        # For downgrades/changes: requires Stripe Price IDs - show message to contact support
         if is_upgrade:
-            # Immediate upgrade with proration - require successful payment
+            # UPGRADE: Apply immediately with proration
             updated_sub = stripe.Subscription.modify(
                 subscription.stripe_subscription_id,
                 items=[{
@@ -357,10 +355,10 @@ def upgrade_plan(plan_id):
                     'price': new_plan.stripe_price_id,
                 }],
                 proration_behavior='create_prorations',
-                payment_behavior='error_if_incomplete'  # Require successful payment
+                payment_behavior='error_if_incomplete'
             )
             
-            # Only update entitlements after successful payment
+            # Update local subscription after successful payment
             if updated_sub.status == 'active':
                 subscription.plan_id = plan_id
                 subscription.current_period_start = datetime.fromtimestamp(updated_sub.current_period_start)
@@ -369,21 +367,70 @@ def upgrade_plan(plan_id):
                 
                 flash(f'Successfully upgraded to {new_plan.display_name}! You have been charged a prorated amount.', 'success')
             else:
-                # Payment requires action - inform user
                 flash(f'Your upgrade requires payment confirmation. Please check your payment method.', 'warning')
         else:
-            # For downgrades: simplified approach - inform user to contact support
-            # Full implementation requires proper Stripe Price ID configuration and Subscription Schedules
-            flash(f'To switch to {new_plan.display_name}, please contact support for assistance. Downgrades will be processed at the end of your current billing period.', 'info')
+            # DOWNGRADE: Schedule change for end of billing period using subscription schedules
+            # This ensures users keep their current plan benefits until period end
+            try:
+                # Create a subscription schedule to change plan at period end
+                schedule = stripe.SubscriptionSchedule.create(
+                    from_subscription=subscription.stripe_subscription_id,
+                )
+                
+                # Update the schedule to change the plan at the end of current period
+                stripe.SubscriptionSchedule.modify(
+                    schedule.id,
+                    end_behavior='release',
+                    phases=[
+                        {
+                            # Current phase - keep existing plan until period end
+                            'items': [{
+                                'price': current_plan.stripe_price_id,
+                                'quantity': 1,
+                            }],
+                            'start_date': schedule.phases[0]['start_date'],
+                            'end_date': stripe_sub.current_period_end,
+                        },
+                        {
+                            # Next phase - new plan starts at period end
+                            'items': [{
+                                'price': new_plan.stripe_price_id,
+                                'quantity': 1,
+                            }],
+                            'start_date': stripe_sub.current_period_end,
+                        }
+                    ]
+                )
+                
+                # Store the scheduled change in subscription metadata (don't change plan_id yet)
+                # The webhook will update plan_id when the schedule actually executes
+                subscription.stripe_subscription_id = schedule.subscription
+                db.session.commit()
+                
+                period_end_date = subscription.current_period_end.strftime("%B %d, %Y")
+                flash(f'Successfully scheduled downgrade to {new_plan.display_name}. You will keep your current {current_plan.display_name} benefits until {period_end_date}.', 'success')
+                
+            except stripe.error.StripeError as schedule_error:
+                # Fallback: If schedule creation fails, inform user to contact support
+                current_app.logger.error(f"Failed to create subscription schedule: {str(schedule_error)}")
+                flash(f'Unable to schedule downgrade automatically. Please contact support to downgrade to {new_plan.display_name}.', 'warning')
         
     except stripe.error.StripeError as e:
-        current_app.logger.error(f"Stripe error upgrading plan: {str(e)}")
+        current_app.logger.error(f"Stripe error changing plan: {str(e)}")
         flash(f'Payment error: {str(e)}', 'danger')
     except Exception as e:
-        current_app.logger.error(f"Error upgrading plan: {str(e)}")
-        flash(f'Error upgrading plan: {str(e)}', 'danger')
+        current_app.logger.error(f"Error changing plan: {str(e)}")
+        flash(f'Error changing plan: {str(e)}', 'danger')
     
     return redirect(url_for('billing.dashboard'))
+
+
+# Legacy route for backwards compatibility
+@billing_bp.route('/upgrade/<int:plan_id>', methods=['POST'])
+@login_required
+def upgrade_plan(plan_id):
+    """Legacy upgrade route - redirects to change_plan"""
+    return change_plan(plan_id)
 
 
 @billing_bp.route('/invoice/<int:invoice_id>')
